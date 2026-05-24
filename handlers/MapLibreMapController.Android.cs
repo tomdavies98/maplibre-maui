@@ -177,25 +177,35 @@ public class MapLibreMapController : Object, IMapLibreMapController,
         _mapLibreMap?.SetLatLngBoundsForCameraTarget(newBounds);
     }
     
+    private void RunOnMapViewThread(Action action) => _mapView.Post(action);
+
     public void AddGeoJsonSource(string sourceName, string source)
     {
+        RunOnMapViewThread(() => AddGeoJsonSourceOnMapThread(sourceName, source));
+    }
+
+    private void AddGeoJsonSourceOnMapThread(string sourceName, string source)
+    {
         var featureCollection = FeatureCollection.FromJson(source);
-        if (featureCollection == null) return;
-        
+        if (featureCollection == null || _style == null) return;
+
         var geoJsonSource = new GeoJsonSource(sourceName, featureCollection);
         _addedFeaturesByLayer[sourceName] = featureCollection;
-        
-        _style?.AddSource(geoJsonSource);
+        _style.AddSource(geoJsonSource);
     }
 
     public void SetGeoJsonSource(string sourceName, string source)
     {
-        var featureCollection = FeatureCollection.FromJson(source);
-        if (featureCollection == null) return;
-        
-        var geoJsonSource = (GeoJsonSource?) _style?.GetSourceAs(sourceName);
-        _addedFeaturesByLayer[sourceName] = featureCollection;
+        RunOnMapViewThread(() => SetGeoJsonSourceOnMapThread(sourceName, source));
+    }
 
+    private void SetGeoJsonSourceOnMapThread(string sourceName, string source)
+    {
+        var featureCollection = FeatureCollection.FromJson(source);
+        if (featureCollection == null || _style == null) return;
+
+        var geoJsonSource = (GeoJsonSource?)_style.GetSourceAs(sourceName);
+        _addedFeaturesByLayer[sourceName] = featureCollection;
         geoJsonSource?.SetGeoJson(featureCollection);
     }
 
@@ -271,14 +281,17 @@ public class MapLibreMapController : Object, IMapLibreMapController,
 
     public void RemoveLayer(string layerId)
     {
-        if (_style == null) return;
-        _style.RemoveLayer(layerId);
-        _interactiveFeatureLayerIds.Remove(layerId);
+        RunOnMapViewThread(() =>
+        {
+            if (_style == null) return;
+            _style.RemoveLayer(layerId);
+            _interactiveFeatureLayerIds.Remove(layerId);
+        });
     }
     
     public void RemoveSource(string sourceId)
     {
-        _style?.RemoveSource(sourceId);
+        RunOnMapViewThread(() => _style?.RemoveSource(sourceId));
     }
     
     public void SetGeoJsonFeature(string sourceName, string geojsonFeature)
@@ -394,34 +407,25 @@ public class MapLibreMapController : Object, IMapLibreMapController,
         float maxZoom = 0,
         bool enableInteraction = false)
     {
-        if (_style == null) return;
-        var propertyValues = properties.Select(x => new PropertyValue(x.Key, x.Value as Object)).ToArray();
-        var fillLayer = new FillLayer(layerName, sourceName);
-        fillLayer.SetProperties(propertyValues);
-        if (sourceLayer != null)
+        RunOnMapViewThread(() =>
         {
-            fillLayer.SourceLayer = sourceLayer;
-        }
-        if (minZoom != 0)
-        {
-            fillLayer.MinZoom = minZoom;
-        }
-        if (maxZoom != 0)
-        {
-            fillLayer.MaxZoom = maxZoom;
-        }
-        if (belowLayerId != null)
-        {
-            _style.AddLayerBelow(fillLayer, belowLayerId);
-        }
-        else
-        {
-            _style.AddLayer(fillLayer);
-        }
-        if (enableInteraction)
-        {
-            _interactiveFeatureLayerIds.Add(layerName);
-        }
+            if (_style == null) return;
+            var propertyValues = properties.Select(x => new PropertyValue(x.Key, x.Value as Object)).ToArray();
+            var fillLayer = new FillLayer(layerName, sourceName);
+            fillLayer.SetProperties(propertyValues);
+            if (sourceLayer != null)
+                fillLayer.SourceLayer = sourceLayer;
+            if (minZoom != 0)
+                fillLayer.MinZoom = minZoom;
+            if (maxZoom != 0)
+                fillLayer.MaxZoom = maxZoom;
+            if (belowLayerId != null)
+                _style.AddLayerBelow(fillLayer, belowLayerId);
+            else
+                _style.AddLayer(fillLayer);
+            if (enableInteraction)
+                _interactiveFeatureLayerIds.Add(layerName);
+        });
     }
     
     public void AddFillExtrusionLayer(

@@ -210,6 +210,26 @@ public class MapLibreMap : StackLayout
         controller.AddGeoJsonSource(sourceName, json);
     }
 
+    public void SetGeoJsonSource(string sourceName, FeatureCollection collection)
+    {
+        if (Handler is not MapLibreMapHandler handler) return;
+        var controller = handler.Controller;
+        var json = JsonSerializer.Serialize(collection);
+        controller.SetGeoJsonSource(sourceName, json);
+    }
+
+    public void RemoveLayer(string layerId)
+    {
+        if (Handler is not MapLibreMapHandler handler) return;
+        handler.Controller.RemoveLayer(layerId);
+    }
+
+    public void RemoveSource(string sourceId)
+    {
+        if (Handler is not MapLibreMapHandler handler) return;
+        handler.Controller.RemoveSource(sourceId);
+    }
+
     public void AddImageSource(string sourceName, string imageUri, LatLngQuad? coordinates)
     {
         if (Handler is not MapLibreMapHandler handler) return;
