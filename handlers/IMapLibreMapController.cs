@@ -111,4 +111,7 @@ public interface IMapLibreMapController : IMapLibreMapOptionsSink
         string? belowLayerId = null);
     
     public void RemoveLayer(string layerId);
+
+    /// <summary>Moves the map camera immediately (no animation).</summary>
+    public void MoveCamera(double latitude, double longitude, double zoom);
 }

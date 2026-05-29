@@ -2,6 +2,7 @@
 
 using UIView = Android.Views.View;
 using ViewGroup = Android.Views.ViewGroup;
+using Android.Views;
 using Android.Widget;
 using Microsoft.Maui.Handlers;
 
@@ -11,10 +12,62 @@ public partial class MapLibreMapHandler : ViewHandler<MapLibreMap, UIView>
 {
     private MapLibreMapController _controller = null!;
     private string _styleUrl = null!;
+    private ViewTreeObserver.IOnGlobalLayoutListener? _layoutListener;
     
     public IMapLibreMapController Controller => _controller;
     
     public MapLibreMapHandler() : base(PropertyMapper) { }
+
+    protected override void ConnectHandler(UIView platformView)
+    {
+        base.ConnectHandler(platformView);
+        VirtualView.SizeChanged += OnVirtualViewSizeChanged;
+        AttachLayoutListener(platformView);
+        RequestViewportSync();
+    }
+
+    protected override void DisconnectHandler(UIView platformView)
+    {
+        VirtualView.SizeChanged -= OnVirtualViewSizeChanged;
+        DetachLayoutListener(platformView);
+        base.DisconnectHandler(platformView);
+    }
+
+    public void RequestViewportSync() => _controller?.SyncViewportLayout();
+
+    private void OnVirtualViewSizeChanged(object? sender, System.EventArgs e) => RequestViewportSync();
+
+    private void AttachLayoutListener(UIView platformView)
+    {
+        DetachLayoutListener(platformView);
+        var observer = platformView.ViewTreeObserver;
+        if (observer == null || !observer.IsAlive)
+            return;
+
+        _layoutListener = new GlobalLayoutListener(RequestViewportSync);
+        observer.AddOnGlobalLayoutListener(_layoutListener);
+    }
+
+    private void DetachLayoutListener(UIView platformView)
+    {
+        if (_layoutListener == null)
+            return;
+
+        var observer = platformView.ViewTreeObserver;
+        if (observer != null && observer.IsAlive)
+            observer.RemoveOnGlobalLayoutListener(_layoutListener);
+
+        _layoutListener = null;
+    }
+
+    private sealed class GlobalLayoutListener : Java.Lang.Object, ViewTreeObserver.IOnGlobalLayoutListener
+    {
+        private readonly Action _onLayout;
+
+        public GlobalLayoutListener(Action onLayout) => _onLayout = onLayout;
+
+        public void OnGlobalLayout() => _onLayout();
+    }
 
     protected override UIView CreatePlatformView()
     {
@@ -53,6 +106,10 @@ public partial class MapLibreMapHandler : ViewHandler<MapLibreMap, UIView>
         layout.LayoutParameters.Width = ViewGroup.LayoutParams.MatchParent;
         layout.LayoutParameters.Height = ViewGroup.LayoutParams.MatchParent;
         
+        mapView.LayoutParameters = new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MatchParent,
+            ViewGroup.LayoutParams.MatchParent);
+
         layout.AddView(mapView);
         
         return layout;

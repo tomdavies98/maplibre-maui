@@ -367,7 +367,13 @@ public class MapLibreMap : StackLayout
         var propertyValues = properties.ToDictionary();
         controller.AddHeatmapLayer(layerName, sourceName, propertyValues, minZoom, maxZoom, belowLayerId);
     }
-    
+
+    public void MoveCamera(double latitude, double longitude, double zoom)
+    {
+        if (Handler is not MapLibreMapHandler handler) return;
+        handler.Controller.MoveCamera(latitude, longitude, zoom);
+    }
+
     // TODO Map parameter may want to return the controller here. 
     public event EventHandler<MapReadyEventArgs>? MapReady;
     public event EventHandler? DidBecomeIdle;

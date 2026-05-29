@@ -63,6 +63,9 @@ public class CircleLayerProperties(
             { "circle-translate-anchor", CircleTranslateAnchor },
             { "circle-pitch-scale", CirclePitchScale },
             { "circle-pitch-alignment", CirclePitchAlignment },
+            { "circle-stroke-width", CircleStrokeWidth },
+            { "circle-stroke-color", CircleStrokeColor },
+            { "circle-stroke-opacity", CircleStrokeOpacity },
             { "visibility", Visibility }
         };
     }

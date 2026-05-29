@@ -197,4 +197,9 @@ public class MapLibreMapController : IMapLibreMapController
     {
         throw new NotImplementedException();
     }
+
+    public void MoveCamera(double latitude, double longitude, double zoom)
+    {
+        throw new NotImplementedException();
+    }
 }

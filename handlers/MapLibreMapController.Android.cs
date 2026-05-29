@@ -2,8 +2,10 @@ using Android.App;
 using Android.Content;
 using Android.OS;
 using Android.Views;
+using Android.Widget;
 using Java.Net;
 using Maui.MapLibre.Handlers.Android;
+using Org.Maplibre.Android.Camera;
 using Org.Maplibre.Android.Constants;
 using Org.Maplibre.Android.Geometry;
 using Org.Maplibre.Android.Location;
@@ -55,6 +57,27 @@ public class MapLibreMapController : Object, IMapLibreMapController,
     private readonly Dictionary<string, FeatureCollection?> _addedFeaturesByLayer = new();
     
     public MapView View => _mapView;
+
+    /// <summary>
+    /// Ensures the native map view fills its container after MAUI layout or configuration changes (e.g. rotation).
+    /// </summary>
+    public void SyncViewportLayout()
+    {
+        // FrameLayout measures children with margins — plain LayoutParams causes ClassCastException.
+        if (_mapView.Parent is FrameLayout)
+        {
+            _mapView.LayoutParameters = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MatchParent,
+                ViewGroup.LayoutParams.MatchParent);
+        }
+
+        _mapView.RequestLayout();
+        _mapView.Invalidate();
+
+        var configuration = _context.Resources?.Configuration;
+        if (configuration != null)
+            _mapView.DispatchConfigurationChanged(configuration);
+    }
     
     // Events
     public event Action<Map>? OnMapReadyReceived;
@@ -176,7 +199,22 @@ public class MapLibreMapController : Object, IMapLibreMapController,
         _bounds = newBounds;
         _mapLibreMap?.SetLatLngBoundsForCameraTarget(newBounds);
     }
-    
+
+    public void MoveCamera(double latitude, double longitude, double zoom)
+    {
+        RunOnMapViewThread(() =>
+        {
+            if (_mapLibreMap is null)
+                return;
+
+            var position = new CameraPosition.Builder()
+                .Target(new LatLng(latitude, longitude))
+                .Zoom((float)zoom)
+                .Build();
+            _mapLibreMap.MoveCamera(CameraUpdateFactory.NewCameraPosition(position));
+        });
+    }
+
     private void RunOnMapViewThread(Action action) => _mapView.Post(action);
 
     public void AddGeoJsonSource(string sourceName, string source)
@@ -186,11 +224,16 @@ public class MapLibreMapController : Object, IMapLibreMapController,
 
     private void AddGeoJsonSourceOnMapThread(string sourceName, string source)
     {
-        var featureCollection = FeatureCollection.FromJson(source);
-        if (featureCollection == null || _style == null) return;
+        if (_style == null) return;
 
-        var geoJsonSource = new GeoJsonSource(sourceName, featureCollection);
-        _addedFeaturesByLayer[sourceName] = featureCollection;
+        var existing = _style.GetSourceAs(sourceName) as GeoJsonSource;
+        if (existing != null)
+        {
+            existing.SetGeoJson(source);
+            return;
+        }
+
+        var geoJsonSource = new GeoJsonSource(sourceName, source);
         _style.AddSource(geoJsonSource);
     }
 
@@ -201,12 +244,16 @@ public class MapLibreMapController : Object, IMapLibreMapController,
 
     private void SetGeoJsonSourceOnMapThread(string sourceName, string source)
     {
-        var featureCollection = FeatureCollection.FromJson(source);
-        if (featureCollection == null || _style == null) return;
+        if (_style == null) return;
 
-        var geoJsonSource = (GeoJsonSource?)_style.GetSourceAs(sourceName);
-        _addedFeaturesByLayer[sourceName] = featureCollection;
-        geoJsonSource?.SetGeoJson(featureCollection);
+        var geoJsonSource = _style.GetSourceAs(sourceName) as GeoJsonSource;
+        if (geoJsonSource == null)
+        {
+            AddGeoJsonSourceOnMapThread(sourceName, source);
+            return;
+        }
+
+        geoJsonSource.SetGeoJson(source);
     }
 
     public void AddRasterSource(string sourceName, string? tileUrl, string[]? tileUrlTemplates, int tileSize, int minZoom, int maxZoom)
@@ -367,34 +414,25 @@ public class MapLibreMapController : Object, IMapLibreMapController,
         float maxZoom = 0,
         bool enableInteraction = false)
     {
-        if (_style == null) return;
-        var propertyValues = properties.Select(x => new PropertyValue(x.Key, x.Value as Object)).ToArray();
-        var lineLayer = new LineLayer(layerName, sourceName);
-        lineLayer.SetProperties(propertyValues);
-        if (sourceLayer != null)
+        RunOnMapViewThread(() =>
         {
-            lineLayer.SourceLayer = sourceLayer;
-        }
-        if (minZoom != 0)
-        {
-            lineLayer.MinZoom = minZoom;
-        }
-        if (maxZoom != 0)
-        {
-            lineLayer.MaxZoom = maxZoom;
-        }
-        if (belowLayerId != null)
-        {
-            _style.AddLayerBelow(lineLayer, belowLayerId);
-        }
-        else
-        {
-            _style.AddLayer(lineLayer);
-        }
-        if (enableInteraction)
-        {
-            _interactiveFeatureLayerIds.Add(layerName);
-        }
+            if (_style == null) return;
+            var propertyValues = LayerPaintPropertyConverter.ToPropertyValues(properties);
+            var lineLayer = new LineLayer(layerName, sourceName);
+            lineLayer.SetProperties(propertyValues);
+            if (sourceLayer != null)
+                lineLayer.SourceLayer = sourceLayer;
+            if (minZoom != 0)
+                lineLayer.MinZoom = minZoom;
+            if (maxZoom != 0)
+                lineLayer.MaxZoom = maxZoom;
+            if (belowLayerId != null)
+                _style.AddLayerBelow(lineLayer, belowLayerId);
+            else
+                _style.AddLayer(lineLayer);
+            if (enableInteraction)
+                _interactiveFeatureLayerIds.Add(layerName);
+        });
     }
     
     public void AddFillLayer(
@@ -410,7 +448,7 @@ public class MapLibreMapController : Object, IMapLibreMapController,
         RunOnMapViewThread(() =>
         {
             if (_style == null) return;
-            var propertyValues = properties.Select(x => new PropertyValue(x.Key, x.Value as Object)).ToArray();
+            var propertyValues = LayerPaintPropertyConverter.ToPropertyValues(properties);
             var fillLayer = new FillLayer(layerName, sourceName);
             fillLayer.SetProperties(propertyValues);
             if (sourceLayer != null)
@@ -479,7 +517,7 @@ public class MapLibreMapController : Object, IMapLibreMapController,
         bool enableInteraction = false)
     {
         if (_style == null) return;
-        var propertyValues = properties.Select(x => new PropertyValue(x.Key, x.Value as Object)).ToArray();
+        var propertyValues = LayerPaintPropertyConverter.ToPropertyValues(properties);
         var circleLayer = new CircleLayer(layerName, sourceName);
         circleLayer.SetProperties(propertyValues);
         if (sourceLayer != null)
